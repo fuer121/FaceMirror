@@ -1,0 +1,16 @@
+{
+  "name": "facemirror",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:web": "npm --workspace @facemirror/web run dev",
+    "dev:server": "npm --workspace @facemirror/server run dev",
+    "build": "npm --workspace @facemirror/shared run build && npm --workspace @facemirror/server run build && npm --workspace @facemirror/web run build",
+    "check": "npm --workspace @facemirror/shared run build && npm --workspace @facemirror/server run build && npm --workspace @facemirror/web run build"
+  }
+}
+
