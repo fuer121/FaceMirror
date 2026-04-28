@@ -69,6 +69,18 @@ npm run dev:web
 3. `CODEX_OPENAI_API_KEY`
 4. `~/.codex/auth.json` 中的本地登录态 access token
 
+海报生图支持单独凭证：
+
+- `OPENAI_IMAGE_API_KEY`：仅用于 `client.images.generate()` 的生图调用
+- 若未配置，则自动回退到上面的通用 `OPENAI_API_KEY` 链路
+- 不要把真实密钥提交到仓库；本地开发请写入 `apps/server/.env`，正式部署请配置到服务器环境变量
+
+如果要把分析链路切到 OpenAI 兼容提供方，可额外配置：
+
+- `OPENAI_BASE_URL`：例如第三方 OpenAI 兼容网关地址
+- `ANALYSIS_MODEL`：对应提供方的模型名
+- 当前代码会在默认 OpenAI 地址下继续使用 `responses` API；配置第三方兼容地址后，会自动切到 `chat.completions` JSON 模式，兼容 Kimi 等 OpenAI 兼容接口
+
 如果没有配置可用凭证，后端仍可运行，但分析和海报生成会退化到演示模式。
 
 ### 本地登录态诊断

@@ -1,8 +1,9 @@
 import fs from "node:fs";
 import OpenAI from "openai";
-import { config, resolveOpenAIApiKey } from "../config.js";
+import { config, resolveImageOpenAIApiKey, resolveOpenAIApiKey } from "../config.js";
 
 let client: OpenAI | null = null;
+let imageClient: OpenAI | null = null;
 let resolvedCredentialSource = "none";
 
 type CodexAuthFile = {
@@ -58,16 +59,42 @@ export function getOpenAIClient() {
     return null;
   }
 
-  client = new OpenAI({ apiKey });
+  client = new OpenAI({
+    apiKey,
+    baseURL: config.openAIBaseUrl
+  });
   return client;
+}
+
+export function getImageOpenAIClient() {
+  if (imageClient) {
+    return imageClient;
+  }
+
+  const apiKey = resolveImageOpenAIApiKey();
+  if (!apiKey) {
+    return null;
+  }
+
+  imageClient = new OpenAI({
+    apiKey,
+    baseURL: config.imageOpenAIBaseUrl
+  });
+  return imageClient;
 }
 
 export function hasOpenAIAccess() {
   return Boolean(resolveAuthToken());
 }
 
+export function hasImageOpenAIAccess() {
+  return Boolean(resolveImageOpenAIApiKey());
+}
+
 export function getModelConfig() {
   return {
+    openAIBaseUrl: config.openAIBaseUrl,
+    imageOpenAIBaseUrl: config.imageOpenAIBaseUrl,
     analysisModel: config.analysisModel,
     imageModel: config.imageModel
   };
@@ -85,7 +112,21 @@ export class OpenAICredentialError extends Error {
   }
 }
 
+export class UpstreamProtocolError extends Error {
+  code: string;
+
+  constructor(code: string, message: string) {
+    super(message);
+    this.name = "UpstreamProtocolError";
+    this.code = code;
+  }
+}
+
 export function normalizeOpenAIError(error: unknown) {
+  if (error instanceof OpenAICredentialError || error instanceof UpstreamProtocolError) {
+    return error;
+  }
+
   const source = getCredentialSource();
   const message = error instanceof Error ? error.message : String(error);
 

@@ -1,6 +1,12 @@
 import fs from "node:fs/promises";
 import { z } from "zod";
-import { getModelConfig, getOpenAIClient, hasOpenAIAccess, normalizeOpenAIError } from "./openai.js";
+import {
+  getModelConfig,
+  getOpenAIClient,
+  hasOpenAIAccess,
+  normalizeOpenAIError,
+  UpstreamProtocolError
+} from "./openai.js";
 import type { AnalysisPayload } from "../types.js";
 
 const analysisSchema = z.object({
@@ -77,11 +83,173 @@ function fallbackAnalysis(): AnalysisPayload {
   };
 }
 
-export async function analyzePhoto(filePath: string): Promise<AnalysisPayload> {
-  if (!hasOpenAIAccess()) {
-    return fallbackAnalysis();
+function usesChatCompletions(baseUrl?: string) {
+  return Boolean(baseUrl && !/api\.openai\.com/i.test(baseUrl));
+}
+
+function trimPreview(value: string) {
+  return value.length > 160 ? `${value.slice(0, 160)}...` : value;
+}
+
+function inferFaceMeta(photoReadiness: AnalysisPayload["photoReadiness"]) {
+  switch (photoReadiness) {
+    case "multiple_faces":
+      return {
+        isSingleFace: false,
+        faceCount: 2,
+        faceConfidence: 0.45
+      };
+    case "no_face":
+      return {
+        isSingleFace: false,
+        faceCount: 0,
+        faceConfidence: 0.12
+      };
+    case "low_light":
+    case "blurred":
+      return {
+        isSingleFace: true,
+        faceCount: 1,
+        faceConfidence: 0.58
+      };
+    case "good":
+    default:
+      return {
+        isSingleFace: true,
+        faceCount: 1,
+        faceConfidence: 0.82
+      };
+  }
+}
+
+function normalizePhotoReadiness(raw: unknown): AnalysisPayload["photoReadiness"] {
+  if (raw === "good" || raw === "low_light" || raw === "blurred" || raw === "multiple_faces" || raw === "no_face") {
+    return raw;
   }
 
+  if (typeof raw === "string") {
+    const value = raw.trim().toLowerCase();
+    if (/multi|multiple|多人|group/.test(value)) {
+      return "multiple_faces";
+    }
+    if (/no[_\\s-]?face|无人|没人脸/.test(value)) {
+      return "no_face";
+    }
+    if (/blur|模糊/.test(value)) {
+      return "blurred";
+    }
+    if (/light|dark|low|暗|光线/.test(value)) {
+      return "low_light";
+    }
+  }
+
+  return "good";
+}
+
+function repairMissingFaceMeta(parsedJson: unknown) {
+  if (typeof parsedJson !== "object" || parsedJson === null || Array.isArray(parsedJson)) {
+    return parsedJson;
+  }
+
+  const draft = { ...parsedJson } as Partial<AnalysisPayload> & { photo_readiness?: unknown };
+  const normalizedPhotoReadiness = normalizePhotoReadiness(draft.photoReadiness ?? draft.photo_readiness);
+  const inferred = inferFaceMeta(normalizedPhotoReadiness);
+
+  return {
+    ...draft,
+    photoReadiness: draft.photoReadiness ?? normalizedPhotoReadiness,
+    isSingleFace: draft.isSingleFace ?? inferred.isSingleFace,
+    faceCount: draft.faceCount ?? inferred.faceCount,
+    faceConfidence: draft.faceConfidence ?? inferred.faceConfidence
+  };
+}
+
+function mergeAnalysisFallback(parsedJson: unknown): unknown {
+  if (typeof parsedJson !== "object" || parsedJson === null || Array.isArray(parsedJson)) {
+    return parsedJson;
+  }
+
+  const draft = parsedJson as Record<string, unknown>;
+  const fallback = fallbackAnalysis();
+  const repaired = repairMissingFaceMeta(draft) as Record<string, unknown>;
+
+  const makeupRegionsRaw = repaired.makeupRegions;
+  const makeupRegions =
+    typeof makeupRegionsRaw === "object" && makeupRegionsRaw !== null && !Array.isArray(makeupRegionsRaw)
+      ? makeupRegionsRaw as Record<string, unknown>
+      : {};
+
+  return {
+    ...fallback,
+    ...repaired,
+    skinTone: typeof repaired.skinTone === "string" ? repaired.skinTone : fallback.skinTone,
+    undertone: typeof repaired.undertone === "string" ? repaired.undertone : fallback.undertone,
+    colorImpression: typeof repaired.colorImpression === "string" ? repaired.colorImpression : fallback.colorImpression,
+    dominantColors: Array.isArray(repaired.dominantColors) && repaired.dominantColors.length > 0
+      ? repaired.dominantColors
+      : fallback.dominantColors,
+    makeupRegions: {
+      base: typeof makeupRegions.base === "string" ? makeupRegions.base : fallback.makeupRegions.base,
+      brows: typeof makeupRegions.brows === "string" ? makeupRegions.brows : fallback.makeupRegions.brows,
+      eyes: typeof makeupRegions.eyes === "string" ? makeupRegions.eyes : fallback.makeupRegions.eyes,
+      blush: typeof makeupRegions.blush === "string" ? makeupRegions.blush : fallback.makeupRegions.blush,
+      lips: typeof makeupRegions.lips === "string" ? makeupRegions.lips : fallback.makeupRegions.lips
+    },
+    strengths: Array.isArray(repaired.strengths) && repaired.strengths.length > 0
+      ? repaired.strengths
+      : fallback.strengths,
+    risks: Array.isArray(repaired.risks) && repaired.risks.length > 0
+      ? repaired.risks
+      : fallback.risks,
+    recommendations: Array.isArray(repaired.recommendations) && repaired.recommendations.length > 0
+      ? repaired.recommendations
+      : fallback.recommendations,
+    posterBrief: typeof repaired.posterBrief === "string" ? repaired.posterBrief : fallback.posterBrief
+  };
+}
+
+export function parseAnalysisPayloadForModelOutput(raw: string | null | undefined, source: "chat.completions" | "responses") {
+  if (!raw?.trim()) {
+    throw new UpstreamProtocolError(
+      "ANALYSIS_EMPTY_CONTENT",
+      `分析模型返回空 content，source=${source}。`
+    );
+  }
+
+  let parsedJson: unknown;
+  try {
+    parsedJson = JSON.parse(raw);
+  } catch {
+    throw new UpstreamProtocolError(
+      "ANALYSIS_INVALID_JSON",
+      `分析模型返回了非 JSON 内容，source=${source}，preview=${trimPreview(raw)}`
+    );
+  }
+
+  const repairedJson = repairMissingFaceMeta(parsedJson);
+  const parsed = analysisSchema.safeParse(repairedJson);
+  if (parsed.success) {
+    return parsed.data;
+  }
+
+  const mergedWithFallback = mergeAnalysisFallback(repairedJson);
+  const mergedParsed = analysisSchema.safeParse(mergedWithFallback);
+  if (mergedParsed.success) {
+    return mergedParsed.data;
+  }
+
+  const details = mergedParsed.error.issues
+    .slice(0, 3)
+    .map((issue) => `${issue.path.join(".") || "root"}: ${issue.message}`)
+    .join("; ");
+
+  throw new UpstreamProtocolError(
+    "ANALYSIS_SCHEMA_MISMATCH",
+    `分析模型返回 JSON schema 不匹配，source=${source}，issues=${details}`
+  );
+}
+
+async function analyzeWithChatCompletions(filePath: string, analysisModel: string): Promise<AnalysisPayload> {
   const client = getOpenAIClient();
 
   if (!client) {
@@ -90,9 +258,53 @@ export async function analyzePhoto(filePath: string): Promise<AnalysisPayload> {
 
   const fileBuffer = await fs.readFile(filePath);
   const base64Image = fileBuffer.toString("base64");
-  const { analysisModel } = getModelConfig();
+  const response = await client.chat.completions.create({
+    model: analysisModel,
+    response_format: { type: "json_object" },
+    messages: [
+      {
+        role: "system",
+        content: buildPrompt()
+      },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "请根据这张照片完成结构化美妆与色彩分析，只返回 JSON。" },
+          {
+            type: "image_url",
+            image_url: {
+              url: `data:image/jpeg;base64,${base64Image}`
+            }
+          }
+        ]
+      }
+    ]
+  });
+
+  const raw = response.choices[0]?.message?.content;
+  return parseAnalysisPayloadForModelOutput(raw, "chat.completions");
+}
+
+export async function analyzePhoto(filePath: string): Promise<AnalysisPayload> {
+  if (!hasOpenAIAccess()) {
+    return fallbackAnalysis();
+  }
+
+  const { analysisModel, openAIBaseUrl } = getModelConfig();
 
   try {
+    if (usesChatCompletions(openAIBaseUrl)) {
+      return await analyzeWithChatCompletions(filePath, analysisModel);
+    }
+
+    const client = getOpenAIClient();
+
+    if (!client) {
+      return fallbackAnalysis();
+    }
+
+    const fileBuffer = await fs.readFile(filePath);
+    const base64Image = fileBuffer.toString("base64");
     const response = await client.responses.create({
       model: analysisModel,
       input: [
@@ -189,10 +401,7 @@ export async function analyzePhoto(filePath: string): Promise<AnalysisPayload> {
       }
     });
 
-    const raw = response.output_text;
-    const parsed = analysisSchema.parse(JSON.parse(raw));
-
-    return parsed;
+    return parseAnalysisPayloadForModelOutput(response.output_text, "responses");
   } catch (error) {
     throw normalizeOpenAIError(error);
   }

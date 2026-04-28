@@ -7,10 +7,10 @@
     "packages/*"
   ],
   "scripts": {
-    "dev:web": "npm --workspace @facemirror/web run dev",
-    "dev:server": "npm --workspace @facemirror/server run dev",
+    "ip:sync": "node ./scripts/sync-local-ip.mjs",
+    "dev:web": "npm run ip:sync && npm --workspace @facemirror/web run dev",
+    "dev:server": "npm run ip:sync && npm --workspace @facemirror/server run dev",
     "build": "npm --workspace @facemirror/shared run build && npm --workspace @facemirror/server run build && npm --workspace @facemirror/web run build",
     "check": "npm --workspace @facemirror/shared run build && npm --workspace @facemirror/server run build && npm --workspace @facemirror/web run build"
   }
 }
-

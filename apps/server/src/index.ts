@@ -17,7 +17,7 @@ import { analyzePhoto } from "./lib/analysis.js";
 import { createPosterFile } from "./lib/poster.js";
 import { cleanupExpiredRecords, deleteRecord, getRecord, upsertRecord } from "./lib/store.js";
 import { checkRateLimit } from "./lib/rate-limit.js";
-import { getCredentialSource, OpenAICredentialError } from "./lib/openai.js";
+import { getCredentialSource, OpenAICredentialError, UpstreamProtocolError } from "./lib/openai.js";
 import type { PersistedRecord } from "./types.js";
 
 const app = express();
@@ -41,12 +41,12 @@ function expiresAtIso() {
   return new Date(Date.now() + config.resultTtlHours * 60 * 60 * 1000).toISOString();
 }
 
-function appError(message: string, status: number): AppErrorResponse & { status: number } {
+function appError(message: string, status: number, code = "APP_ERROR"): AppErrorResponse & { status: number } {
   return {
     status,
     error: {
       message,
-      code: "APP_ERROR"
+      code
     }
   };
 }
@@ -165,6 +165,10 @@ app.post("/api/analyze", upload.single("photo"), async (req, res) => {
       res.status(503).json(appError(error.message, 503));
       return;
     }
+    if (error instanceof UpstreamProtocolError) {
+      res.status(502).json(appError(error.message, 502, error.code));
+      return;
+    }
     res.status(500).json(appError("分析失败，请稍后重试。", 500));
   }
 });
@@ -204,7 +208,7 @@ app.post("/api/render", async (req, res) => {
       faceCount: 1,
       faceConfidence: 1,
       photoReadiness: "good"
-    });
+    }, record.localSourcePath);
 
     const updated: PersistedRecord = {
       ...record,

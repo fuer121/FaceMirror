@@ -7,12 +7,23 @@ import type {
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
 
+export class ApiError extends Error {
+  code?: string;
+
+  constructor(message: string, code?: string) {
+    super(message);
+    this.name = "ApiError";
+    this.code = code;
+  }
+}
+
 async function parseResponse<T>(response: Response): Promise<T> {
   const json = (await response.json()) as T | AppErrorResponse;
   if (!response.ok) {
     const maybeError = json as AppErrorResponse;
     const message = maybeError.error?.message ?? "请求失败";
-    throw new Error(message);
+    const code = maybeError.error?.code;
+    throw new ApiError(message, code);
   }
   return json as T;
 }
