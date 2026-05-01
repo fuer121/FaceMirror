@@ -45,7 +45,7 @@ function buildPrompt() {
   ].join("\n");
 }
 
-function fallbackAnalysis(): AnalysisPayload {
+export function fallbackAnalysis(): AnalysisPayload {
   return {
     isSingleFace: true,
     faceCount: 1,

@@ -13,7 +13,7 @@ import {
 } from "@facemirror/shared";
 import { config } from "./config.js";
 import { ensureDir } from "./lib/fs.js";
-import { analyzePhoto } from "./lib/analysis.js";
+import { fallbackAnalysis } from "./lib/analysis.js";
 import { createPosterFile } from "./lib/poster.js";
 import { cleanupExpiredRecords, deleteRecord, getRecord, upsertRecord } from "./lib/store.js";
 import { checkRateLimit } from "./lib/rate-limit.js";
@@ -108,19 +108,7 @@ app.post("/api/analyze", upload.single("photo"), async (req, res) => {
       return;
     }
 
-    const analysis = await analyzePhoto(req.file.path);
-
-    if (!analysis.isSingleFace || analysis.faceCount !== 1) {
-      await fs.rm(req.file.path, { force: true }).catch(() => undefined);
-      res.status(400).json(appError("请上传清晰的单人照片，当前图片不符合单人分析要求。", 400));
-      return;
-    }
-
-    if (analysis.photoReadiness === "blurred" || analysis.photoReadiness === "low_light") {
-      await fs.rm(req.file.path, { force: true }).catch(() => undefined);
-      res.status(400).json(appError("照片清晰度或光线不足，请换一张更清楚的正脸照。", 400));
-      return;
-    }
+    const analysis = fallbackAnalysis();
 
     const jobId = nanoid(12);
     const expiresAt = expiresAtIso();

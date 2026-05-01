@@ -26,13 +26,3 @@ export async function compressImage(file: File) {
   });
 }
 
-export function formatRemainingTime(expiresAt: string) {
-  const diff = new Date(expiresAt).getTime() - Date.now();
-  if (diff <= 0) {
-    return "已过期";
-  }
-
-  const hours = Math.max(1, Math.round(diff / 1000 / 60 / 60));
-  return `约 ${hours} 小时内可回看`;
-}
-

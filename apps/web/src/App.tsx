@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 import type { AnalysisResponse, ResultResponse } from "@facemirror/shared";
 import { ApiError, analyzePhoto, fetchResult, renderPoster } from "./api";
-import { compressImage, formatRemainingTime } from "./utils";
+import { compressImage } from "./utils";
 
 type Stage = "idle" | "ready" | "analyzing" | "rendering" | "done" | "error";
 type ErrorKind = "photo" | "analysis" | "render";
@@ -79,28 +79,37 @@ function Icon({ name, className = "" }: { name: IconName; className?: string }) 
     case "palette":
       return (
         <svg aria-hidden="true" className={classNames} fill="none" viewBox="0 0 24 24">
-          <circle cx="12" cy="12" r="8" stroke="currentColor" strokeWidth="1.8" />
-          <path d="M12 4a8 8 0 0 0 0 16z" fill="currentColor" opacity="0.28" />
+          <path d="M12 3.8c-4.8 0-8.4 3.2-8.4 7.7 0 4.9 3.8 8.7 8.8 8.7h1.1c1.2 0 1.8-1.4 1-2.3-.5-.6-.2-1.5.6-1.7l1.9-.4c2.1-.5 3.4-2.2 3.4-4.3 0-4.5-3.6-7.7-8.4-7.7Z" stroke="currentColor" strokeWidth="1.7" />
+          <circle cx="8.4" cy="10.2" r="1.1" fill="currentColor" opacity="0.7" />
+          <circle cx="11.5" cy="7.7" r="1.1" fill="currentColor" opacity="0.5" />
+          <circle cx="15.4" cy="9.5" r="1.1" fill="currentColor" opacity="0.42" />
+          <circle cx="10.6" cy="14" r="1.1" fill="currentColor" opacity="0.6" />
         </svg>
       );
     case "hair":
       return (
         <svg aria-hidden="true" className={classNames} fill="none" viewBox="0 0 24 24">
-          <path d="M5 9c2-2.4 4-2.4 6 0s4 2.4 6 0" stroke="currentColor" strokeLinecap="round" strokeWidth="1.9" />
-          <path d="M5 14c2-2.4 4-2.4 6 0s4 2.4 6 0" stroke="currentColor" strokeLinecap="round" strokeWidth="1.9" />
+          <path d="M6.4 19.5c1.1-2.1 1.2-4.1.6-6.1-.9-3 .3-7.4 5.1-7.4s6 4.4 5.1 7.4c-.6 2-.5 4 .6 6.1" stroke="currentColor" strokeLinecap="round" strokeWidth="1.65" />
+          <path d="M8.8 11.7c2.2-.4 4-1.6 5.1-3.6 1 1.8 1.9 2.7 3.2 3.3" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.65" />
+          <path d="M9.2 15.4c1.8 1.7 3.9 1.8 5.8 0" stroke="currentColor" strokeLinecap="round" strokeWidth="1.5" />
+          <path d="M5 20.2c1.6-1.2 3.5-1.9 5.4-2.1M19 20.2c-1.5-1.2-3.4-1.9-5.4-2.1" stroke="currentColor" strokeLinecap="round" strokeWidth="1.4" opacity="0.75" />
         </svg>
       );
     case "style":
       return (
         <svg aria-hidden="true" className={classNames} fill="none" viewBox="0 0 24 24">
-          <path d="m12 4 8 8-8 8-8-8z" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.8" />
-          <path d="M12 8v8M8 12h8" stroke="currentColor" strokeLinecap="round" strokeWidth="1.5" opacity="0.45" />
+          <path d="M10 4.8h4l.8 3 2.2 2.7-1.8 8.7H8.8L7 10.5l2.2-2.7z" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.7" />
+          <path d="M10 4.8c.2 1.4.8 2.3 2 2.3s1.8-.9 2-2.3" stroke="currentColor" strokeLinecap="round" strokeWidth="1.5" />
+          <path d="M8.2 13.2h7.6" stroke="currentColor" strokeLinecap="round" strokeWidth="1.4" opacity="0.55" />
         </svg>
       );
     case "makeup":
       return (
         <svg aria-hidden="true" className={classNames} fill="none" viewBox="0 0 24 24">
-          <path d="M12 3.8 13.8 9l5.4 1.2-5.4 1.9L12 20.2l-1.8-8.1-5.4-1.9L10.2 9z" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.7" />
+          <path d="M6.5 18.8 12.8 8.6l2.6 1.6-6.3 10.2z" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.55" />
+          <path d="m12.8 8.6 1.4-3.9 2.7 1.7-1.5 3.8" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.55" />
+          <path d="M14.8 18.6 18 9.7l1.9.7-3.2 8.9z" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.45" />
+          <path d="m18 9.7.6-2.7 1.6.6-.3 2.8" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.45" />
         </svg>
       );
     case "shield":
@@ -178,7 +187,7 @@ function getStageCopy(stage: Stage) {
       return {
         badge: "已完成",
         title: "结果已生成",
-        description: "可以直接查看结果图，链接会在 24 小时后失效。"
+        description: "点击结果图可查看大图并保存。"
       };
     case "ready":
       return {
@@ -338,15 +347,10 @@ export default function App() {
       <main className="app-frame">
         <section className="beauty-console" id="upload">
           <div className="console-header">
-            <div>
-              <p className="eyebrow">FaceMirror / AI Beauty System</p>
+            <div className="hero-copy">
               <h1>你的个人美学分析</h1>
-              <p>{activeCapability.description}</p>
+              <p>AI 智能分析，发现更美的你</p>
             </div>
-            <span className="privacy-note">
-              <Icon name="shield" />
-              24 小时后自动删除
-            </span>
           </div>
 
           <div className="mode-switcher" aria-label="功能切换">
@@ -380,22 +384,9 @@ export default function App() {
 
               {result?.poster_url && selectedMode === "color" ? (
                 <div className="poster-panel">
-                  <img className="poster-image" src={result.poster_url} alt="分析海报" />
-                  <div className="poster-actions">
-                    <a className="secondary-button" href={result.poster_url} target="_blank" rel="noreferrer">
-                      <span aria-hidden="true">
-                        <Icon name="open" />
-                      </span>
-                      查看结果图
-                    </a>
-                    <a className="secondary-button" href={window.location.href}>
-                      <span aria-hidden="true">
-                        <Icon name="link" />
-                      </span>
-                      复制链接
-                    </a>
-                  </div>
-                  <small>{formatRemainingTime(result.expires_at)}</small>
+                  <a className="poster-link" href={result.poster_url} target="_blank" rel="noreferrer" aria-label="查看结果大图">
+                    <img className="poster-image" src={result.poster_url} alt="分析海报" />
+                  </a>
                 </div>
               ) : stage === "error" && selectedMode === "color" ? (
                 <div className="empty-block error-block">
@@ -404,14 +395,15 @@ export default function App() {
                     <p>{visibleError?.message ?? "请求失败，请稍后重试。"}</p>
                   </div>
                 </div>
+              ) : !isCurrentModeAvailable ? (
+                <div className="upcoming-message">敬请期待</div>
               ) : (
-                <div className={`empty-block${isCurrentModeAvailable ? "" : " upcoming-block"}`}>
+                <div className="empty-block">
                   <span className="empty-icon" aria-hidden="true">
-                    <Icon name={isCurrentModeAvailable ? "sparkle" : activeCapability.icon} />
+                    <Icon name="sparkle" />
                   </span>
-                  {!isCurrentModeAvailable ? <small>{activeCapability.status}</small> : null}
-                  <strong>{isCurrentModeAvailable ? activeCapability.placeholder : `${activeCapability.title}即将开放`}</strong>
-                  <p>{isCurrentModeAvailable ? stageCopy.description : "先体验色彩分析，后续这里会切换为对应的专属分析画布。"}</p>
+                  <strong>生成结果</strong>
+                  <p>AI 分析将显示在这里</p>
                 </div>
               )}
             </div>
@@ -421,23 +413,28 @@ export default function App() {
                 <label className="preview-thumb" aria-label="重新上传照片">
                   <input accept="image/png,image/jpeg" type="file" onChange={handleFileChange} />
                   <img src={previewUrl} alt="已选择照片预览" />
-                  <span className="refresh-icon" aria-hidden="true">
-                    <Icon name="refresh" />
-                  </span>
                 </label>
-                <div>
-                  <span>单人正脸 / 自然光 / 小于 10MB</span>
+                <div className="preview-copy">
+                  <strong>已上传照片</strong>
+                  <span>单人正脸 · 自然光 · 小于 10MB</span>
                   <small>{selectedFile?.name}</small>
                 </div>
+                <label className="preview-action" aria-label="重新上传照片">
+                  <input accept="image/png,image/jpeg" type="file" onChange={handleFileChange} />
+                  <span aria-hidden="true">换</span>
+                  <small>更换照片</small>
+                </label>
               </div>
             ) : (
               <div className="upload-controls">
                 <label className="upload-pill">
                   <input accept="image/png,image/jpeg" type="file" onChange={handleFileChange} />
-                  <span aria-hidden="true">
-                    <Icon name="upload" />
+                  <span className="upload-symbol" aria-hidden="true" />
+                  <span className="upload-copy">
+                    <strong>上传照片</strong>
+                    <small>单人正脸 · 自然光 · 小于 10MB</small>
                   </span>
-                  <span>上传照片</span>
+                  <span className="upload-action">选择照片</span>
                 </label>
               </div>
             )}
@@ -452,6 +449,10 @@ export default function App() {
               </span>
               {!isCurrentModeAvailable ? "即将开放" : stage === "analyzing" ? "分析中..." : stage === "rendering" ? "出图中..." : activeCapability.resultTitle}
             </button>
+            <p className="privacy-note">
+              <Icon name="shield" />
+              你的照片仅用于分析，24 小时后自动删除
+            </p>
           </div>
         </section>
       </main>

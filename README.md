@@ -1,6 +1,12 @@
 # FaceMirror
 
-FaceMirror 是一个移动端优先的 H5 美妆分析项目。用户上传单人照片后，后端会进行结构化色彩与妆容分析，并进一步生成一张可分享的“分析海报”。
+FaceMirror 是一个移动端优先的 H5 个人色彩分析项目。用户上传一张人像照片后，系统基于上传原图和预设 prompt 调用 `gpt-image-2` 图生图，生成可分享的个人色彩分析报告图。
+
+## 当前项目唯一信息源
+
+当前项目状态、真实 API 链路、模型接入、环境变量、本地运行方式和验收记录以 [docs/PROJECT_CONTEXT.md](docs/PROJECT_CONTEXT.md) 为准。
+
+聊天上下文、历史计划文档和临时测试结论不能作为唯一依据；如果重要事实发生变化，必须同步更新 [docs/PROJECT_CONTEXT.md](docs/PROJECT_CONTEXT.md)。
 
 ## 项目结构
 
@@ -18,11 +24,11 @@ deploy/
 ## 核心特性
 
 - 单人照片上传、压缩、预览
-- 结构化色彩与妆容分析
-- 基于分析结果生成海报图
+- 基于上传原图生成个人色彩分析报告图
+- `gpt-image-2` 图生图出图链路
 - 24 小时结果留存与回看
 - 基础限流、MIME 校验、文件大小限制
-- 支持开发期通过本地环境变量接入 OpenAI
+- 支持开发期通过本地环境变量接入 APIMart/OpenAI 兼容图片服务
 
 ## 本地启动
 
@@ -55,33 +61,24 @@ npm run dev:web
 - 前端：`http://localhost:5173`
 - 后端：`http://localhost:8787`
 
-## OpenAI 接入说明
+## 模型接入说明
 
-- 前端不直接访问 OpenAI。
+- 前端不直接访问模型服务。
 - 后端通过环境变量读取服务端凭证。
-- 开发阶段可以尝试复用你当前本机环境中已经存在的 OpenAI/Codex 认证变量。
-- 正式部署必须在服务器环境变量中显式配置密钥，不能依赖开发机登录态。
-
-后端支持的环境变量优先级：
-
-1. `OPENAI_API_KEY`
-2. `OPENAI_AUTH_TOKEN`
-3. `CODEX_OPENAI_API_KEY`
-4. `~/.codex/auth.json` 中的本地登录态 access token
+- 当前主链路不依赖 Kimi/OpenAI 文本分析模型。
+- `/api/analyze` 只负责上传校验和建单。
+- `/api/render` 使用上传原图调用 `gpt-image-2` 图生图。
+- 正式部署必须在服务器环境变量中显式配置密钥。
 
 海报生图支持单独凭证：
 
-- `OPENAI_IMAGE_API_KEY`：仅用于 `client.images.generate()` 的生图调用
-- 若未配置，则自动回退到上面的通用 `OPENAI_API_KEY` 链路
+- `OPENAI_IMAGE_BASE_URL`：当前使用 `https://api.apimart.ai/v1`
+- `OPENAI_IMAGE_API_KEY`：图片服务 API key
+- `IMAGE_MODEL`：当前使用 `gpt-image-2`
+- `IMAGE_RESOLUTION`：当前建议 `1k`
 - 不要把真实密钥提交到仓库；本地开发请写入 `apps/server/.env`，正式部署请配置到服务器环境变量
 
-如果要把分析链路切到 OpenAI 兼容提供方，可额外配置：
-
-- `OPENAI_BASE_URL`：例如第三方 OpenAI 兼容网关地址
-- `ANALYSIS_MODEL`：对应提供方的模型名
-- 当前代码会在默认 OpenAI 地址下继续使用 `responses` API；配置第三方兼容地址后，会自动切到 `chat.completions` JSON 模式，兼容 Kimi 等 OpenAI 兼容接口
-
-如果没有配置可用凭证，后端仍可运行，但分析和海报生成会退化到演示模式。
+完整环境变量和当前供应商决策见 [docs/PROJECT_CONTEXT.md](docs/PROJECT_CONTEXT.md)。
 
 ### 本地登录态诊断
 
@@ -107,6 +104,6 @@ npm --workspace @facemirror/server run auth:check
 
 ## 注意事项
 
-- 当前“单人脸”校验依赖 LLM 对照片内容进行结构化判断，不是传统 CV 人脸检测模型。
+- 当前只做文件类型和大小校验，不做 CV 单人脸检测。
 - 分析结果仅用于美妆与色彩建议，不构成医疗或专业美容诊断。
 - 图片与结果默认保留 24 小时，超时后会被自动清理。
