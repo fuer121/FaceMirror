@@ -1,8 +1,6 @@
-import fs from "node:fs/promises";
-import path from "node:path";
 import { config, resolveImageOpenAIApiKey } from "../config.js";
 import { getModelConfig, hasImageOpenAIAccess, normalizeOpenAIError } from "./openai.js";
-import type { AnalysisPayload } from "../types.js";
+import type { AnalysisPayload, RenderFeature } from "../types.js";
 
 function escapeXml(value: string) {
   return value
@@ -77,21 +75,33 @@ function buildSvgPoster(analysis: AnalysisPayload) {
   </svg>`;
 }
 
-function buildImagePrompt(analysis: AnalysisPayload) {
+function buildImagePrompt(analysis: AnalysisPayload, feature: RenderFeature, configuredPrompt?: string) {
   const dominantColors = analysis.dominantColors.map((entry) => `${entry.name}(${entry.hex})`).join("、");
   const recommendationHint = analysis.recommendations.slice(0, 3).join("；");
-
-  return [
+  const featureLabels: Record<RenderFeature, string> = {
+    color: "色彩分析",
+    hair: "发型分析",
+    style: "穿搭分析",
+    makeup: "妆容分析"
+  };
+  const basePrompt = configuredPrompt?.trim() || [
     "色彩分析：請根據我上傳的人像照片，製作一張高質感個人色彩分析圖卡。",
     "只使用輸入照片中的人物作為主角。保留主角原本五官、膚色、臉型、髮型、表情與真實特徵，不要換臉，不要生成其他人。",
-    "輸出為 1:1 方形個人色彩分析報告海報，乾淨、明亮、精緻，像專業形象顧問報告，適合社群分享。",
+    "輸出為 9:16 竖版個人色彩分析報告海報，乾淨、明亮、精緻，像專業形象顧問報告，適合手机查看和社群分享。",
     "版面結構：上方標題「個人色彩分析報告 / PERSONAL COLOR ANALYSIS REPORT」；左側放主角清晰人像；右側放色彩類型、簡短特質與色彩指數。",
     "中段放一排「最佳色彩」圓形色票，使用柔和淺色系與清楚中文色名。",
     "下段做左右或並排對比：左邊「適合色彩 GOOD」，右邊「不適合色彩 BAD」。每邊 3 到 4 張同一主角的小圖，展示不同服裝顏色穿在主角身上的效果。",
     "清楚區分「適合色」與「不適合色」，讓人一眼看出哪些顏色最襯膚色、提升氣色與整體質感。",
     "文字規則：整體以視覺呈現為主，只使用短標籤與短句，例如「推薦」「普通」「避免」「氣色提升」「顯得暗沉」，不要加入長段文字。",
     "底部可放「色彩分析總結」與「穿搭小建議」，每欄最多兩行短句。",
-    "高解析度，信息清楚，排版留白充足，避免深色厚重背景，避免雜誌長文版面。",
+    "高解析度，信息清楚，排版留白充足，避免深色厚重背景，避免雜誌長文版面。"
+  ].join("\n");
+
+  return [
+    `${featureLabels[feature]}：`,
+    basePrompt,
+    "硬性要求：只使用输入照片中的人物作为主角；保留主角原本五官、肤色、脸型、发型、表情与真实特征；不要换脸；不要生成其他人。",
+    "输出为 9:16 竖版高质感图卡，适合手机查看和社群分享；中文文字必须少且清晰，避免长段解释。",
     `分析参考：肤色=${analysis.skinTone}，冷暖=${analysis.undertone}，主导色=${dominantColors}。`,
     `建议方向（仅作视觉引导，不要输出长文）：${recommendationHint}。`
   ].join("\n");
@@ -139,22 +149,6 @@ function trimTrailingSlash(value: string) {
   return value.replace(/\/+$/, "");
 }
 
-function extToMime(filePath: string) {
-  const ext = path.extname(filePath).toLowerCase();
-  if (ext === ".png") {
-    return "image/png";
-  }
-  if (ext === ".webp") {
-    return "image/webp";
-  }
-  return "image/jpeg";
-}
-
-async function readImageAsDataUri(filePath: string) {
-  const buffer = await fs.readFile(filePath);
-  return `data:${extToMime(filePath)};base64,${buffer.toString("base64")}`;
-}
-
 async function readJsonResponse<T>(response: Response) {
   const text = await response.text();
   try {
@@ -171,7 +165,7 @@ function assertApimartOk(response: Response, body: ApimartSubmitResponse | Apima
   }
 }
 
-async function submitApimartImageTask(prompt: string, sourceImagePath: string) {
+async function submitApimartImageTask(prompt: string, sourceImageReference: string) {
   const apiKey = resolveImageOpenAIApiKey();
   if (!apiKey) {
     return null;
@@ -188,9 +182,9 @@ async function submitApimartImageTask(prompt: string, sourceImagePath: string) {
       model: imageModel,
       prompt,
       n: 1,
-      size: "1:1",
+      size: "9:16",
       resolution: config.imageResolution,
-      image_urls: [await readImageAsDataUri(sourceImagePath)]
+      image_urls: [sourceImageReference]
     })
   });
 
@@ -249,17 +243,21 @@ async function downloadImage(imageUrl: string) {
   return Buffer.from(await response.arrayBuffer());
 }
 
-async function renderWithOpenAI(analysis: AnalysisPayload, sourceImagePath?: string): Promise<Buffer | null> {
+async function renderWithOpenAI(
+  analysis: AnalysisPayload,
+  sourceImageReference: string | undefined,
+  feature: RenderFeature,
+  configuredPrompt?: string
+): Promise<Buffer | null> {
   if (!hasImageOpenAIAccess()) {
     return null;
   }
 
-  const prompt = buildImagePrompt(analysis);
+  const prompt = buildImagePrompt(analysis, feature, configuredPrompt);
 
-  if (sourceImagePath) {
+  if (sourceImageReference) {
     try {
-      await fs.access(sourceImagePath);
-      const taskId = await submitApimartImageTask(prompt, sourceImagePath);
+      const taskId = await submitApimartImageTask(prompt, sourceImageReference);
       if (!taskId) {
         return null;
       }
@@ -277,28 +275,30 @@ async function renderWithOpenAI(analysis: AnalysisPayload, sourceImagePath?: str
   throw new Error("缺少上传原图，无法按预期进行图生图。");
 }
 
-function buildSvgFallbackResult(renderBasePath: string) {
-  return {
-    filePath: `${renderBasePath}.svg`,
-    fileName: `${renderBasePath.split(/[/\\]/).at(-1) ?? "poster"}.svg`
-  };
-}
-
-export async function createPosterFile(renderBasePath: string, analysis: AnalysisPayload, sourceImagePath?: string) {
+export async function createPosterImage(
+  analysis: AnalysisPayload,
+  sourceImageReference: string | undefined,
+  feature: RenderFeature,
+  configuredPrompt?: string,
+  options: { forceFallback?: boolean } = {}
+): Promise<{ buffer: Buffer; extension: string; mimeType: string }> {
   let imageBuffer: Buffer | null = null;
-  imageBuffer = await renderWithOpenAI(analysis, sourceImagePath);
+  if (!options.forceFallback) {
+    imageBuffer = await renderWithOpenAI(analysis, sourceImageReference, feature, configuredPrompt);
+  }
 
   if (imageBuffer) {
-    const pngPath = `${renderBasePath}.png`;
-    await fs.writeFile(pngPath, imageBuffer);
     return {
-      filePath: pngPath,
-      fileName: `${renderBasePath.split(/[/\\]/).at(-1) ?? "poster"}.png`
+      buffer: imageBuffer,
+      extension: ".png",
+      mimeType: "image/png"
     };
   }
 
   const svg = buildSvgPoster(analysis);
-  const fallbackResult = buildSvgFallbackResult(renderBasePath);
-  await fs.writeFile(fallbackResult.filePath, svg, "utf8");
-  return fallbackResult;
+  return {
+    buffer: Buffer.from(svg, "utf8"),
+    extension: ".svg",
+    mimeType: "image/svg+xml"
+  };
 }

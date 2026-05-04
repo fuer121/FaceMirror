@@ -1,8 +1,5 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
 import { parseAnalysisPayloadForModelOutput } from "../lib/analysis.js";
-import { createPosterFile } from "../lib/poster.js";
+import { createPosterImage } from "../lib/poster.js";
 import { UpstreamProtocolError } from "../lib/openai.js";
 import type { AnalysisPayload } from "../types.js";
 
@@ -33,24 +30,21 @@ const sampleAnalysis: AnalysisPayload = {
 };
 
 async function verifyPosterFallback() {
-  const tempDir = await mkdtemp(path.join(os.tmpdir(), "facemirror-p0-"));
-  const renderBasePath = path.join(tempDir, "poster");
-  const result = await createPosterFile(renderBasePath, sampleAnalysis);
-  const content = await readFile(result.filePath, "utf8");
+  const result = await createPosterImage(sampleAnalysis, undefined, "color", undefined, { forceFallback: true });
+  const content = result.buffer.toString("utf8");
 
-  if (!result.fileName.endsWith(".svg") || !content.includes("<svg")) {
+  if (result.extension !== ".svg" || !content.includes("<svg")) {
     throw new Error("SVG fallback verification failed.");
   }
 
-  await rm(tempDir, { recursive: true, force: true });
-  return result.fileName;
+  return `poster${result.extension}`;
 }
 
 async function main() {
   const cases: Array<[string, () => void]> = [
     ["ANALYSIS_EMPTY_CONTENT", () => parseAnalysisPayloadForModelOutput("", "chat.completions")],
     ["ANALYSIS_INVALID_JSON", () => parseAnalysisPayloadForModelOutput("not json", "chat.completions")],
-    ["ANALYSIS_SCHEMA_MISMATCH", () => parseAnalysisPayloadForModelOutput("{\"skinTone\":\"warm\"}", "chat.completions")]
+    ["ANALYSIS_SCHEMA_MISMATCH", () => parseAnalysisPayloadForModelOutput("{\"faceConfidence\":2}", "chat.completions")]
   ];
 
   for (const [expectedCode, run] of cases) {

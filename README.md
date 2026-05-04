@@ -96,11 +96,10 @@ npm --workspace @facemirror/server run auth:check
 
 ## 部署
 
-- 使用 `npm run build` 构建
-- 将 `apps/web/dist` 作为静态资源目录
-- 将 `apps/server/dist` 部署为 Node 服务
-- 使用 `deploy/nginx.facemirror.conf` 作为反向代理参考
-- 使用 `deploy/ecosystem.config.cjs` 可直接通过 PM2 托管后端
+- 生产部署以 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) 为准。
+- 当前生产目标是阿里云 ECS 单机 + Nginx + PM2，使用 ECS 本机磁盘目录保存业务数据和图片。
+- Postgres / OSS 是后续扩展能力，不是当前最小部署必需项。
+- 使用 `deploy/nginx.facemirror.conf` 和 `deploy/ecosystem.config.cjs` 作为部署配置模板。
 
 ## 注意事项
 
